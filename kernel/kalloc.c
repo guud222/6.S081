@@ -39,24 +39,28 @@ freerange(void *pa_start, void *pa_end)
     kfree(p);
 }
 
-uint64
-getfreemem(void *pa_start, void *pa_end)
-{
-    uint64 size = 0;
-    char *p = (char *)PGROUNDUP((uint64)pa_start);
-        size += collectmem(p);
-    return size;
-}
-
-uint64
-collectmem(void *pa)
-{
-    struct run *r;
-
 // Free the page of physical memory pointed at by v,
 // which normally should have been returned by a
 // call to kalloc().  (The exception is when
 // initializing the allocator; see kinit above.)
+void
+kfree(void *pa)
+{
+  struct run *r;
+
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("kfree");
+
+  // Fill with junk to catch dangling refs.
+  memset(pa, 1, PGSIZE);
+
+  r = (struct run*)pa;
+
+  acquire(&kmem.lock);
+  r->next = kmem.freelist;
+  kmem.freelist = r;
+  release(&kmem.lock);
+}
 
 // Allocate one 4096-byte page of physical memory.
 // Returns a pointer that the kernel can use.
@@ -77,8 +81,21 @@ kalloc(void)
   return (void*)r;
 }
 
+
 uint64
 getfreemem(void)
 {
-    return kmem.freelist;
+    int cnt = 0;
+    acquire(&kmem.lock);
+    struct run *r = kmem.freelist;
+    struct run *start = kmem.freelist;
+    while(r)
+    {
+        cnt++;
+        kmem.freelist = r->next;
+        r = kmem.freelist;
+    }
+    kmem.freelist = start;
+    release(&kmem.lock);
+    return cnt * 4096;
 }

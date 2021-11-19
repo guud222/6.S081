@@ -157,6 +157,7 @@ char *syscallname[32] = {
     "mkdir",
     "close",
     "trace",
+    "sysinfo",
 };
 
 void
