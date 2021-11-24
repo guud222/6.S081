@@ -60,7 +60,7 @@ proc_kvminit(pagetable_t pagetable)
     kvmmap(pagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
     // CLINT
-    kvmmap(pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+    // kvmmap(pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
 
     // PLIC
     kvmmap(pagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
@@ -195,7 +195,10 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
         if((pte = walk(pagetable, a, 1)) == 0)
             return -1;
         if(*pte & PTE_V)
+        {
+            printf("%p\n", va);
             panic("remap");
+        }
         *pte = PA2PTE(pa) | perm | PTE_V;
         if(a == last)
             break;
@@ -373,6 +376,30 @@ err:
     return -1;
 }
 
+int
+copy(pagetable_t old, pagetable_t new, uint64 sz)
+{
+    pte_t *pte;
+    uint64 pa, i;
+    uint flags;
+
+    for(i = 0; i < sz; i += PGSIZE){
+        if((pte = walk(old, i, 0)) == 0)
+            panic("copy: pte should exitst");
+        if((*pte & PTE_V) == 0)
+            panic("copy: page not present");
+        pa = PTE2PA(*pte);
+        flags = PTE_FLAGS(*pte) & ~PTE_U;
+        if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0)
+            goto err;
+    }
+    return 0;
+
+err:
+    uvmunmap(new, 0, i / PGSIZE, 1);
+    return -1;
+}
+
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.
     void
@@ -417,6 +444,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
+    return copyin_new(pagetable, dst, srcva, len);
     uint64 n, va0, pa0;
 
     while(len > 0){
@@ -443,6 +471,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
+    return copyinstr_new(pagetable, dst, srcva, max);
     uint64 n, va0, pa0;
     int got_null = 0;
 

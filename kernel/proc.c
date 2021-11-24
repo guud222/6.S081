@@ -159,20 +159,20 @@ freeproc(struct proc *p)
     if(p->kpagetable)
     {
         // One way
-        /*
         uvmunmap(p->kpagetable, KSTACK(0), 1, 1);
         proc_freekpagetable(p->kpagetable);
-        */
         // Another way
-        uvmunmap(p->kpagetable, UART0, 1, 0);
-        uvmunmap(p->kpagetable, VIRTIO0, 1, 0);
-        uvmunmap(p->kpagetable, CLINT, 0x10, 0);
-        uvmunmap(p->kpagetable, PLIC, 0x400, 0);
-        uvmunmap(p->kpagetable, KERNBASE, PGROUNDUP((uint64)etext-KERNBASE) / PGSIZE, 0);
-        uvmunmap(p->kpagetable, (uint64)etext, PGROUNDUP(PHYSTOP-(uint64)etext)/ PGSIZE, 0);
-        uvmunmap(p->kpagetable, TRAMPOLINE, 1, 0);
-        uvmunmap(p->kpagetable, KSTACK(0), 1, 1);
-        freewalk(p->kpagetable);
+        /*
+           uvmunmap(p->kpagetable, UART0, 1, 0);
+           uvmunmap(p->kpagetable, VIRTIO0, 1, 0);
+           uvmunmap(p->kpagetable, CLINT, 0x10, 0);
+           uvmunmap(p->kpagetable, PLIC, 0x400, 0);
+           uvmunmap(p->kpagetable, KERNBASE, PGROUNDUP((uint64)etext-KERNBASE) / PGSIZE, 0);
+           uvmunmap(p->kpagetable, (uint64)etext, PGROUNDUP(PHYSTOP-(uint64)etext)/ PGSIZE, 0);
+           uvmunmap(p->kpagetable, TRAMPOLINE, 1, 0);
+           uvmunmap(p->kpagetable, KSTACK(0), 1, 1);
+           freewalk(p->kpagetable);
+           */
     }
     p->kstack = 0;
     p->pagetable = 0;
@@ -272,6 +272,8 @@ userinit(void)
     uvminit(p->pagetable, initcode, sizeof(initcode));
     p->sz = PGSIZE;
 
+    copy(p->pagetable, p->kpagetable, p->sz);
+
     // prepare for the very first "return" from kernel to user.
     p->trapframe->epc = 0;      // user program counter
     p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -294,10 +296,21 @@ growproc(int n)
 
     sz = p->sz;
     if(n > 0){
-        if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+        uint newsz;
+        if((newsz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
             return -1;
         }
+        for(int j = sz; j < sz + n; j += PGSIZE)
+        {
+            pte_t *pte, *kpte;
+            pte = walk(p->pagetable, j, 0);
+            kpte = walk(p->kpagetable, j, 1);
+            *kpte = (*pte) & ~PTE_U;
+        }
+        sz = newsz;
     } else if(n < 0){
+        int npages = (PGROUNDUP(sz) - PGROUNDUP(sz + n)) / PGSIZE;
+        uvmunmap(p->kpagetable, PGROUNDUP(sz + n), npages, 0);
         sz = uvmdealloc(p->pagetable, sz, sz + n);
     }
     p->sz = sz;
@@ -319,7 +332,7 @@ fork(void)
     }
 
     // Copy user memory from parent to child.
-    if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+    if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0 || copy(np->pagetable, np->kpagetable, p->sz) < 0){
         freeproc(np);
         release(&np->lock);
         return -1;
