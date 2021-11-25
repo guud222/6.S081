@@ -705,8 +705,40 @@ int sigalarm(int ticks, void (*handler)())
     struct proc *p = myproc();
     if(p->ticks == ticks)
     {
+        if(p->bk.flag)
+        {
+            p->ticks = 0;
+            return 0;
+        }
+        p->bk.sp = p->trapframe->sp;
+        p->bk.ra = p->trapframe->ra;
+        p->bk.s0 = p->trapframe->s0;
+        p->bk.s1 = p->trapframe->s1;
+        p->bk.a0 = p->trapframe->a0;
+        p->bk.a1 = p->trapframe->a1;
+        p->bk.a2 = p->trapframe->a2;
+        p->bk.a5 = p->trapframe->a5;
+        p->bk.epc = p->trapframe->epc;
+        p->bk.flag = 1;
+
         p->trapframe->epc = (uint64)handler;
         p->ticks = 0;
     }
+    return 0;
+}
+
+int sigreturn(void)
+{
+    struct proc *p = myproc();
+    p->trapframe->sp = p->bk.sp;
+    p->trapframe->ra = p->bk.ra;
+    p->trapframe->s0 = p->bk.s0;
+    p->trapframe->s1 = p->bk.s1;
+    p->trapframe->a0 = p->bk.a0;
+    p->trapframe->a1 = p->bk.a1;
+    p->trapframe->a2 = p->bk.a2;
+    p->trapframe->a5 = p->bk.a5;
+    p->trapframe->epc = p->bk.epc;
+    p->bk.flag = 0;
     return 0;
 }

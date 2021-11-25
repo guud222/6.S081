@@ -100,7 +100,7 @@ sys_uptime(void)
 uint64
 sys_sigreturn(void)
 {
-    return 0;
+    return sigreturn();
 }
 
 uint64
